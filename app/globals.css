@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-secondary {
+    @apply border border-blue-600 text-blue-600 hover:bg-blue-50 font-medium py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-md p-6;
+  }
+
+  .swiper-slide {
+    height: auto !important;
+  }
+
+  .clients_logo_carousel .swiper-wrapper {
+    transition-timing-function: linear !important;
+  }
+
+  mark {
+    background: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* TradingView Widget Styling */
+  .tradingview-widget-container {
+    position: relative;
+  }
+
+  .tradingview-widget-container iframe {
+    border-radius: 0.75rem !important;
+  }
+
+  .tradingview-widget-copyright {
+    font-size: 13px !important;
+    line-height: 32px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto,
+      Ubuntu, sans-serif !important;
+    color: #9ba3af !important;
+    padding: 8px !important;
+  }
+
+  .tradingview-widget-copyright .blue-text {
+    color: #4c6fff !important;
+  }
+
+  .tradingview-widget-copyright a {
+    text-decoration: none !important;
+    color: #9ba3af !important;
+  }
+
+  .tradingview-widget-copyright a:visited {
+    color: #9ba3af !important;
+  }
+
+  .tradingview-widget-copyright a:hover .blue-text {
+    color: #3b5ce0 !important;
+  }
+
+  .tradingview-widget-copyright a:active .blue-text {
+    color: #2a4bc9 !important;
+  }
+
+  .tradingview-widget-copyright a:visited .blue-text {
+    color: #4c6fff !important;
+  }
+}
