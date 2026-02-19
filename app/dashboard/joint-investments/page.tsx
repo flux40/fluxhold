@@ -20,19 +20,11 @@ import {
   UserPlus,
   Copy,
   ChevronRight,
-  BarChart3,
-  Globe,
-  Building,
-  Sparkles,
-  Target,
   Calendar,
-  Percent,
   DollarSign,
   Link2,
-  Send,
 } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
 
 interface JointInvestment {
   id: string;
@@ -81,6 +73,7 @@ interface CreateModalProps {
 export default function JointInvestmentsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingInvestments, setLoadingInvestments] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [balance, setBalance] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"discover" | "my-investments">("discover");
@@ -91,139 +84,127 @@ export default function JointInvestmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // User's investments
   const [userInvestments, setUserInvestments] = useState<UserInvestment[]>([]);
   
   // Available joint investments
-  const [investments, setInvestments] = useState<JointInvestment[]>([
-    {
-      id: "1",
-      name: "Green Energy Solar Farm",
-      description: "Co-invest in a large-scale solar farm project with guaranteed power purchase agreements.",
-      image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800&auto=format&fit=crop",
-      category: "Renewable Energy",
-      minInvestment: 5000,
-      totalValue: 5000000,
-      investedAmount: 3750000,
-      participants: 124,
-      maxParticipants: 200,
-      roi: 12.5,
-      duration: "24 months",
-      risk: "Medium",
-      status: "Open",
-      endDate: "2026-06-30",
-      features: ["Monthly payouts", "Tax benefits", "Secured assets"]
-    },
-    {
-      id: "2",
-      name: "Luxury Real Estate Development",
-      description: "Joint investment in a premium residential complex in Miami's financial district.",
-      image: "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop",
-      category: "Real Estate",
-      minInvestment: 10000,
-      totalValue: 12000000,
-      investedAmount: 8900000,
-      participants: 89,
-      maxParticipants: 150,
-      roi: 15.2,
-      duration: "36 months",
-      risk: "Medium",
-      status: "Open",
-      endDate: "2026-04-15",
-      features: ["Quarterly dividends", "Property appreciation", "Professional management"]
-    },
-    {
-      id: "3",
-      name: "AI Technology Fund",
-      description: "Pooled investment in top AI startups and machine learning companies.",
-      image: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800&auto=format&fit=crop",
-      category: "Technology",
-      minInvestment: 2500,
-      totalValue: 8000000,
-      investedAmount: 5200000,
-      participants: 312,
-      maxParticipants: 500,
-      roi: 18.7,
-      duration: "48 months",
-      risk: "High",
-      status: "Open",
-      endDate: "2026-05-20",
-      features: ["Diversified portfolio", "Expert management", "Early exit option"]
-    },
-    {
-      id: "4",
-      name: "Sustainable Agriculture",
-      description: "Invest in organic farming and sustainable agriculture infrastructure.",
-      image: "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=800&auto=format&fit=crop",
-      category: "Agriculture",
-      minInvestment: 3000,
-      totalValue: 3500000,
-      investedAmount: 2100000,
-      participants: 156,
-      maxParticipants: 200,
-      roi: 10.8,
-      duration: "30 months",
-      risk: "Low",
-      status: "Open",
-      endDate: "2026-07-10",
-      features: ["ESG focused", "Monthly reports", "Insurance backed"]
-    },
-    {
-      id: "5",
-      name: "Blockchain Infrastructure",
-      description: "Joint investment in blockchain node infrastructure and DeFi protocols.",
-      image: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&auto=format&fit=crop",
-      category: "Cryptocurrency",
-      minInvestment: 5000,
-      totalValue: 6000000,
-      investedAmount: 4800000,
-      participants: 203,
-      maxParticipants: 250,
-      roi: 22.4,
-      duration: "12 months",
-      risk: "High",
-      status: "Filled",
-      endDate: "2026-02-28",
-      features: ["Weekly rewards", "Staking yields", "Liquidity provision"]
-    },
-    {
-      id: "6",
-      name: "Healthcare Innovation",
-      description: "Fund innovative healthcare startups and medical research facilities.",
-      image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&auto=format&fit=crop",
-      category: "Healthcare",
-      minInvestment: 4000,
-      totalValue: 9500000,
-      investedAmount: 7100000,
-      participants: 178,
-      maxParticipants: 225,
-      roi: 14.3,
-      duration: "42 months",
-      risk: "Medium",
-      status: "Open",
-      endDate: "2026-08-05",
-      features: ["Impact investing", "FDA pipeline", "Royalty sharing"]
+  const [investments, setInvestments] = useState<JointInvestment[]>([]);
+
+  // Fetch available investments from Supabase
+  const fetchAvailableInvestments = async () => {
+    try {
+      setLoadingInvestments(true);
+      
+      const { data, error } = await supabase
+        .from('joint_investments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        // Transform database fields to match your interface
+        const transformedInvestments: JointInvestment[] = data.map(inv => ({
+          id: inv.id,
+          name: inv.name,
+          description: inv.description || 'No description available',
+          image: inv.image || 'https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800&auto=format&fit=crop',
+          category: inv.category || 'General',
+          minInvestment: inv.min_investment || 1000,
+          totalValue: inv.total_value || inv.invested_amount * 2 || 1000000,
+          investedAmount: inv.invested_amount || 0,
+          participants: inv.participants || 0,
+          maxParticipants: inv.max_participants || 100,
+          roi: inv.roi_percentage || 0,
+          duration: inv.duration || '24 months',
+          risk: (inv.risk_level as "Low" | "Medium" | "High") || 'Medium',
+          status: (inv.status as "Open" | "Closed" | "Filled") || 'Open',
+          endDate: inv.end_date || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          features: inv.features || []
+        }));
+        
+        setInvestments(transformedInvestments);
+      } else {
+        // If no data, set empty array
+        setInvestments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching investments:', error);
+      setError('Failed to load investments');
+    } finally {
+      setLoadingInvestments(false);
     }
-  ]);
+  };
+
+  // Fetch user's investments from Supabase
+  const fetchUserInvestments = async (userId: string) => {
+    try {
+      console.log("Fetching user investments for:", userId);
+      
+      const { data, error } = await supabase
+        .from('user_investments')
+        .select(`
+          id,
+          investment_id,
+          amount,
+          shares,
+          status,
+          returns,
+          created_at,
+          joint_investments (
+            id,
+            name,
+            roi_percentage
+          )
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Error fetching user investments:", error);
+        throw error;
+      }
+      
+      console.log("Raw user investments data:", data);
+      
+      if (data && data.length > 0) {
+        const transformed: UserInvestment[] = data.map(inv => ({
+          id: inv.id,
+          investmentId: inv.investment_id,
+          investmentName: inv.joint_investments?.name || 'Unknown Investment',
+          amount: inv.amount,
+          shares: inv.shares,
+          joinedAt: inv.created_at,
+          status: inv.status,
+          returns: inv.returns || 0
+        }));
+        
+        console.log("Transformed investments:", transformed);
+        setUserInvestments(transformed);
+      } else {
+        console.log("No user investments found");
+        setUserInvestments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching user investments:', error);
+      setError('Failed to load your investments');
+    }
+  };
 
   useEffect(() => {
     const checkUserAndFetchData = async () => {
       try {
         setIsLoading(true);
         
-        // Get current user
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
+        const { data: { user }, error } = await supabase.auth.getUser();
 
         if (!user || error) {
           router.push("/login");
           return;
         }
 
-        // Fetch user profile with balance
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("*")
@@ -234,16 +215,14 @@ export default function JointInvestmentsPage() {
           console.error("Error fetching profile:", profileError);
         }
 
-        const userBalance = profile?.demo_balance || 100000;
+        setUser({ ...user, profile });
+        setBalance(profile?.demo_balance || 0);
         
-        setUser({
-          ...user,
-          profile,
-        });
-        setBalance(userBalance);
-        
-        // Fetch user's joint investments
-        await fetchUserInvestments(user.id);
+        // Fetch real data from Supabase
+        await Promise.all([
+          fetchUserInvestments(user.id),
+          fetchAvailableInvestments()
+        ]);
         
       } catch (error) {
         console.error("Error checking user:", error);
@@ -255,129 +234,134 @@ export default function JointInvestmentsPage() {
     checkUserAndFetchData();
   }, [router]);
 
-  const fetchUserInvestments = async (userId: string) => {
-    try {
-      // This would come from Supabase in production
-      // For demo, we'll use mock data
-      const mockInvestments: UserInvestment[] = [
-        {
-          id: "101",
-          investmentId: "1",
-          investmentName: "Green Energy Solar Farm",
-          amount: 15000,
-          shares: 15,
-          joinedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
-          status: "active",
-          returns: 1250
-        },
-        {
-          id: "102",
-          investmentId: "3",
-          investmentName: "AI Technology Fund",
-          amount: 25000,
-          shares: 25,
-          joinedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          status: "active",
-          returns: 3200
-        }
-      ];
-      
-      setUserInvestments(mockInvestments);
-    } catch (error) {
-      console.error("Error fetching user investments:", error);
-    }
-  };
-
   const handleJoinInvestment = async (investmentId: string, amount: number) => {
     setIsProcessing(true);
     setError(null);
     
     try {
+      console.log("Starting join investment process:", { investmentId, amount });
+      
       // Check if user has enough balance
       if (amount > balance) {
         throw new Error("Insufficient balance");
       }
       
-      // Find the investment
-      const investment = investments.find(i => i.id === investmentId);
-      if (!investment) {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log("Current user:", user);
+      
+      if (userError || !user) {
+        throw new Error("Not authenticated");
+      }
+      
+      // Get investment details
+      const { data: investment, error: investmentError } = await supabase
+        .from('joint_investments')
+        .select('*')
+        .eq('id', investmentId)
+        .single();
+        
+      console.log("Investment details:", investment);
+        
+      if (investmentError || !investment) {
         throw new Error("Investment not found");
       }
       
       // Check minimum investment
-      if (amount < investment.minInvestment) {
-        throw new Error(`Minimum investment is $${investment.minInvestment.toLocaleString()}`);
+      if (amount < (investment.min_investment || 1000)) {
+        throw new Error(`Minimum investment is $${(investment.min_investment || 1000).toLocaleString()}`);
       }
       
       // Calculate shares (assuming $1000 per share)
       const shares = amount / 1000;
       
-      // Create transaction record
+      // 1. Create transaction record
+      console.log("Creating transaction...");
       const { error: transactionError } = await supabase
         .from("transactions")
-        .insert([
-          {
-            user_id: user.id,
-            type: "investment",
-            amount: -amount, // Negative for investment
-            description: `Joint Investment: ${investment.name}`,
-            status: "completed",
-            sender: user.id,
-            recipient: investment.id,
-            created_at: new Date().toISOString(),
-            metadata: {
-              investment_id: investmentId,
-              investment_name: investment.name,
-              shares: shares,
-              expected_roi: investment.roi,
-              duration: investment.duration
-            }
+        .insert([{
+          user_id: user.id,
+          type: "investment",
+          amount: -amount,
+          description: `Joint Investment: ${investment.name}`,
+          status: "completed",
+          metadata: {
+            investment_id: investmentId,
+            investment_name: investment.name,
+            shares: shares,
+            expected_roi: investment.roi_percentage
           }
-        ]);
+        }]);
 
-      if (transactionError) throw transactionError;
+      if (transactionError) {
+        console.error("Transaction error:", transactionError);
+        throw transactionError;
+      }
+      console.log("Transaction created successfully");
       
-      // Update user balance
+      // 2. Add to user_investments
+      console.log("Adding to user_investments...");
+      const { error: userInvError } = await supabase
+        .from('user_investments')
+        .insert([{
+          user_id: user.id,
+          investment_id: investmentId,
+          amount: amount,
+          shares: shares,
+          status: 'active',
+          returns: 0
+        }]);
+        
+      if (userInvError) {
+        console.error("User investments error:", userInvError);
+        throw userInvError;
+      }
+      console.log("User investment added successfully");
+      
+      // 3. Update investment participant count and invested amount
+      console.log("Updating investment stats...");
+      const { error: updateError } = await supabase
+        .from('joint_investments')
+        .update({
+          participants: (investment.participants || 0) + 1,
+          invested_amount: (investment.invested_amount || 0) + amount
+        })
+        .eq('id', investmentId);
+        
+      if (updateError) {
+        console.error("Update error:", updateError);
+        throw updateError;
+      }
+      console.log("Investment stats updated");
+      
+      // 4. Update user balance
+      console.log("Updating user balance...");
       const newBalance = balance - amount;
-      await supabase
+      const { error: balanceError } = await supabase
         .from("profiles")
         .update({ demo_balance: newBalance })
         .eq("id", user.id);
+        
+      if (balanceError) {
+        console.error("Balance update error:", balanceError);
+        throw balanceError;
+      }
+      console.log("Balance updated successfully");
       
       setBalance(newBalance);
-      
-      // Add to user investments
-      const newInvestment: UserInvestment = {
-        id: Date.now().toString(),
-        investmentId,
-        investmentName: investment.name,
-        amount,
-        shares,
-        joinedAt: new Date().toISOString(),
-        status: "active",
-        returns: 0
-      };
-      
-      setUserInvestments(prev => [newInvestment, ...prev]);
-      
-      // Update investment participant count
-      setInvestments(prev => 
-        prev.map(i => 
-          i.id === investmentId 
-            ? { 
-                ...i, 
-                participants: i.participants + 1,
-                investedAmount: i.investedAmount + amount 
-              }
-            : i
-        )
-      );
-      
       setSuccess(`Successfully invested $${amount.toLocaleString()} in ${investment.name}`);
+      
+      // Close modal first
       setShowJoinModal(false);
       
-      // Switch to my investments tab
-      setActiveTab("my-investments");
+      // Refresh data with a slight delay to ensure database consistency
+      setTimeout(async () => {
+        await Promise.all([
+          fetchUserInvestments(user.id),
+          fetchAvailableInvestments()
+        ]);
+        setActiveTab("my-investments");
+      }, 500);
       
     } catch (error: any) {
       console.error("Error joining investment:", error);
@@ -385,6 +369,61 @@ export default function JointInvestmentsPage() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleCreateInvestment = async (data: any) => {
+    try {
+      setIsProcessing(true);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+      
+      const { error } = await supabase
+        .from('joint_investments')
+        .insert([{
+          name: data.name,
+          description: data.description,
+          category: data.category,
+          min_investment: data.minInvestment,
+          total_value: data.targetAmount,
+          invested_amount: 0,
+          participants: 0,
+          max_participants: data.maxParticipants,
+          roi_percentage: data.roi,
+          duration: data.duration,
+          risk_level: data.risk,
+          status: 'Open',
+          end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          created_by: user.id,
+          features: []
+        }]);
+        
+      if (error) throw error;
+      
+      setSuccess("Investment opportunity created successfully!");
+      setShowCreateModal(false);
+      
+      // Refresh investments
+      await fetchAvailableInvestments();
+      
+    } catch (error: any) {
+      console.error("Error creating investment:", error);
+      setError(error.message || "Failed to create investment");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await Promise.all([
+        fetchUserInvestments(user.id),
+        fetchAvailableInvestments()
+      ]);
+    }
+    setRefreshing(false);
   };
 
   const handleCopyLink = (investmentId: string) => {
@@ -401,10 +440,6 @@ export default function JointInvestmentsPage() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     });
-  };
-
-  const formatPercent = (value: number) => {
-    return `${value.toFixed(1)}%`;
   };
 
   const formatDate = (dateString: string) => {
@@ -493,7 +528,7 @@ export default function JointInvestmentsPage() {
                 <div className="bg-[#0F2438] rounded-xl p-4 border border-gray-800">
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-12 rounded-lg bg-[#4c6fff]/20 flex items-center justify-center">
-                      <span className="text-xl">{investment.image ? "🌱" : "💰"}</span>
+                      <span className="text-xl">💰</span>
                     </div>
                     <div>
                       <h4 className="text-white font-medium">{investment.name}</h4>
@@ -881,9 +916,17 @@ export default function JointInvestmentsPage() {
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-3 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white font-medium rounded-xl hover:opacity-90 transition-opacity"
+                      disabled={isProcessing}
+                      className="flex-1 py-3 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white font-medium rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
-                      Create Investment
+                      {isProcessing ? (
+                        <span className="flex items-center justify-center">
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Creating...
+                        </span>
+                      ) : (
+                        "Create Investment"
+                      )}
                     </button>
                   </div>
                 </div>
@@ -923,6 +966,21 @@ export default function JointInvestmentsPage() {
           </div>
           
           <div className="flex items-center space-x-3">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="p-2 bg-[#0F2438] border border-gray-800 rounded-lg text-gray-400 hover:text-white hover:border-[#4c6fff] transition-colors disabled:opacity-50"
+              title="Refresh"
+            >
+              <svg 
+                className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
             <button
               onClick={() => setShowCreateModal(true)}
               className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white rounded-lg hover:opacity-90 transition-opacity"
@@ -1045,123 +1103,148 @@ export default function JointInvestmentsPage() {
 
         {/* Content */}
         {activeTab === "discover" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {investments.map((investment) => (
-              <div
-                key={investment.id}
-                className="bg-[#0B1C2D] rounded-2xl border border-gray-800 overflow-hidden hover:border-[#4c6fff]/50 transition-colors"
-              >
-                <div className="relative h-48">
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0B1C2D] via-transparent to-transparent z-10"></div>
-                  <img
-                    src={investment.image}
-                    alt={investment.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute top-4 right-4 z-20">
-                    {getStatusBadge(investment.status)}
-                  </div>
-                  <div className="absolute bottom-4 left-4 z-20">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRiskColor(investment.risk)}`}>
-                      {investment.risk} Risk
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="text-xl font-bold text-white mb-1">{investment.name}</h3>
-                      <p className="text-sm text-gray-400">{investment.category}</p>
+          loadingInvestments ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 text-[#4c6fff] animate-spin" />
+              <span className="ml-3 text-gray-400">Loading investments...</span>
+            </div>
+          ) : investments.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {investments.map((investment) => (
+                <div
+                  key={investment.id}
+                  className="bg-[#0B1C2D] rounded-2xl border border-gray-800 overflow-hidden hover:border-[#4c6fff]/50 transition-colors"
+                >
+                  <div className="relative h-48">
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B1C2D] via-transparent to-transparent z-10"></div>
+                    <img
+                      src={investment.image}
+                      alt={investment.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-4 right-4 z-20">
+                      {getStatusBadge(investment.status)}
+                    </div>
+                    <div className="absolute bottom-4 left-4 z-20">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRiskColor(investment.risk)}`}>
+                        {investment.risk} Risk
+                      </span>
                     </div>
                   </div>
                   
-                  <p className="text-gray-400 text-sm mb-4 line-clamp-2">
-                    {investment.description}
-                  </p>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-400">Progress</span>
-                        <span className="text-white">
-                          {formatCurrency(investment.investedAmount)} / {formatCurrency(investment.totalValue)}
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-800 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 h-2 rounded-full"
-                          style={{ width: `${getProgressPercentage(investment.investedAmount, investment.totalValue)}%` }}
-                        ></div>
+                  <div className="p-6">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h3 className="text-xl font-bold text-white mb-1">{investment.name}</h3>
+                        <p className="text-sm text-gray-400">{investment.category}</p>
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-gray-400 text-xs">Min Investment</p>
-                        <p className="text-white font-bold">{formatCurrency(investment.minInvestment)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-xs">Participants</p>
-                        <p className="text-white font-bold">{investment.participants}/{investment.maxParticipants}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-xs">Expected ROI</p>
-                        <p className="text-green-500 font-bold">{investment.roi}%</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-xs">Duration</p>
-                        <p className="text-white font-bold">{investment.duration}</p>
-                      </div>
-                    </div>
+                    <p className="text-gray-400 text-sm mb-4 line-clamp-2">
+                      {investment.description}
+                    </p>
                     
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {investment.features.map((feature, index) => (
-                        <span
-                          key={index}
-                          className="px-2 py-1 bg-[#0F2438] rounded-lg text-xs text-gray-400"
-                        >
-                          {feature}
-                        </span>
-                      ))}
-                    </div>
-                    
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="flex items-center text-sm text-gray-500">
-                        <Calendar className="w-4 h-4 mr-1" />
-                        <span>Ends {formatDate(investment.endDate)}</span>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-400">Progress</span>
+                          <span className="text-white">
+                            {formatCurrency(investment.investedAmount)} / {formatCurrency(investment.totalValue)}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-800 rounded-full h-2">
+                          <div
+                            className="bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 h-2 rounded-full"
+                            style={{ width: `${getProgressPercentage(investment.investedAmount, investment.totalValue)}%` }}
+                          ></div>
+                        </div>
                       </div>
                       
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleCopyLink(investment.id)}
-                          className="p-2 bg-[#0F2438] border border-gray-800 rounded-lg text-gray-400 hover:text-[#4c6fff] hover:border-[#4c6fff] transition-colors"
-                          title="Copy invite link"
-                        >
-                          {copied === investment.id ? (
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <Link2 className="w-4 h-4" />
-                          )}
-                        </button>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-gray-400 text-xs">Min Investment</p>
+                          <p className="text-white font-bold">{formatCurrency(investment.minInvestment)}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 text-xs">Participants</p>
+                          <p className="text-white font-bold">{investment.participants}/{investment.maxParticipants}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 text-xs">Expected ROI</p>
+                          <p className="text-green-500 font-bold">{investment.roi}%</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 text-xs">Duration</p>
+                          <p className="text-white font-bold">{investment.duration}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {investment.features.map((feature, index) => (
+                          <span
+                            key={index}
+                            className="px-2 py-1 bg-[#0F2438] rounded-lg text-xs text-gray-400"
+                          >
+                            {feature}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="flex items-center text-sm text-gray-500">
+                          <Calendar className="w-4 h-4 mr-1" />
+                          <span>Ends {formatDate(investment.endDate)}</span>
+                        </div>
                         
-                        <button
-                          onClick={() => {
-                            setSelectedInvestment(investment);
-                            setShowJoinModal(true);
-                          }}
-                          disabled={investment.status !== "Open"}
-                          className="px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Join Now
-                        </button>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleCopyLink(investment.id)}
+                            className="p-2 bg-[#0F2438] border border-gray-800 rounded-lg text-gray-400 hover:text-[#4c6fff] hover:border-[#4c6fff] transition-colors"
+                            title="Copy invite link"
+                          >
+                            {copied === investment.id ? (
+                              <CheckCircle className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <Link2 className="w-4 h-4" />
+                            )}
+                          </button>
+                          
+                          <button
+                            onClick={() => {
+                              setSelectedInvestment(investment);
+                              setShowJoinModal(true);
+                            }}
+                            disabled={investment.status !== "Open"}
+                            className="px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Join Now
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-[#0B1C2D] rounded-xl border border-gray-800 p-12 text-center">
+              <div className="flex flex-col items-center">
+                <div className="w-20 h-20 rounded-full bg-[#4c6fff]/10 flex items-center justify-center mb-4">
+                  <Users className="w-10 h-10 text-[#4c6fff]" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">No investments available</h3>
+                <p className="text-gray-400 mb-6 max-w-md">
+                  There are no joint investment opportunities available at the moment. Check back later or create your own.
+                </p>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-6 py-3 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Create Investment
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+          )
         ) : (
           <div className="space-y-6">
             {userInvestments.length > 0 ? (
@@ -1256,12 +1339,7 @@ export default function JointInvestmentsPage() {
       <CreateModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onCreate={async (data) => {
-          // This would create a new investment in production
-          console.log("Creating investment:", data);
-          setShowCreateModal(false);
-          setSuccess("Investment opportunity created successfully!");
-        }}
+        onCreate={handleCreateInvestment}
       />
       
       <style jsx>{`

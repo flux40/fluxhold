@@ -123,7 +123,7 @@ export default function DashboardPage() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("demo_balance")
+        .select("balance")
         .eq("id", userId)
         .single();
 
@@ -132,7 +132,7 @@ export default function DashboardPage() {
         return 0;
       }
 
-      return data?.demo_balance || 0;
+      return data?.balance || 0;
     } catch (error) {
       console.error("Error fetching balance:", error);
       return 0;
