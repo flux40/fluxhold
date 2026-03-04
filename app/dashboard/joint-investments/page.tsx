@@ -15,6 +15,7 @@ import {
   Info,
   X,
   TrendingUp,
+  TrendingDown,
   Wallet,
   Plus,
   UserPlus,
@@ -23,6 +24,10 @@ import {
   Calendar,
   DollarSign,
   Link2,
+  BarChart3,
+  ArrowUp,
+  ArrowDown,
+  Minus,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -43,6 +48,8 @@ interface JointInvestment {
   status: "Open" | "Closed" | "Filled";
   endDate: string;
   features: string[];
+  trend?: "up" | "down" | "stable";
+  trendPercentage?: number;
 }
 
 interface UserInvestment {
@@ -54,6 +61,20 @@ interface UserInvestment {
   joinedAt: string;
   status: "active" | "pending" | "completed";
   returns: number;
+  roi?: number;
+  trend?: "up" | "down" | "stable";
+  trendPercentage?: number;
+}
+
+interface InvestmentTrend {
+  id: string;
+  name: string;
+  currentValue: number;
+  previousValue: number;
+  change: number;
+  changePercentage: number;
+  trend: "up" | "down" | "stable";
+  category: string;
 }
 
 interface JoinModalProps {
@@ -64,22 +85,15 @@ interface JoinModalProps {
   onJoin: (investmentId: string, amount: number) => Promise<void>;
 }
 
-interface CreateModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreate: (data: any) => Promise<void>;
-}
-
 export default function JointInvestmentsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [loadingInvestments, setLoadingInvestments] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [balance, setBalance] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<"discover" | "my-investments">("discover");
+  const [activeTab, setActiveTab] = useState<"discover" | "my-investments" | "trending">("discover");
   const [selectedInvestment, setSelectedInvestment] = useState<JointInvestment | null>(null);
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -91,6 +105,61 @@ export default function JointInvestmentsPage() {
   
   // Available joint investments
   const [investments, setInvestments] = useState<JointInvestment[]>([]);
+
+  // Investment trends
+  const [investmentTrends, setInvestmentTrends] = useState<InvestmentTrend[]>([]);
+
+  // Generate mock trend data (in production, this would come from your database)
+  const generateTrends = (investmentsList: JointInvestment[]): InvestmentTrend[] => {
+    return investmentsList.map(inv => {
+      // Generate random trend data for demo
+      const previousValue = inv.investedAmount * (0.85 + Math.random() * 0.3);
+      const change = inv.investedAmount - previousValue;
+      const changePercentage = (change / previousValue) * 100;
+      
+      let trend: "up" | "down" | "stable" = "stable";
+      if (changePercentage > 2) trend = "up";
+      else if (changePercentage < -2) trend = "down";
+      
+      return {
+        id: inv.id,
+        name: inv.name,
+        currentValue: inv.investedAmount,
+        previousValue,
+        change,
+        changePercentage,
+        trend,
+        category: inv.category
+      };
+    }).sort((a, b) => Math.abs(b.changePercentage) - Math.abs(a.changePercentage));
+  };
+
+  // Generate user investment trends
+  const generateUserTrends = (userInvestmentsList: UserInvestment[]): UserInvestment[] => {
+    return userInvestmentsList.map(inv => {
+      // Generate random trend for user's investments
+      const randomTrend = Math.random();
+      let trend: "up" | "down" | "stable" = "stable";
+      let trendPercentage = 0;
+      
+      if (randomTrend > 0.6) {
+        trend = "up";
+        trendPercentage = 5 + Math.random() * 15;
+      } else if (randomTrend < 0.3) {
+        trend = "down";
+        trendPercentage = -(5 + Math.random() * 10);
+      } else {
+        trend = "stable";
+        trendPercentage = (Math.random() * 4) - 2;
+      }
+      
+      return {
+        ...inv,
+        trend,
+        trendPercentage
+      };
+    });
+  };
 
   // Fetch available investments from Supabase
   const fetchAvailableInvestments = async () => {
@@ -126,9 +195,12 @@ export default function JointInvestmentsPage() {
         }));
         
         setInvestments(transformedInvestments);
+        
+        // Generate trends
+        setInvestmentTrends(generateTrends(transformedInvestments));
       } else {
-        // If no data, set empty array
         setInvestments([]);
+        setInvestmentTrends([]);
       }
     } catch (error) {
       console.error('Error fetching investments:', error);
@@ -138,51 +210,70 @@ export default function JointInvestmentsPage() {
     }
   };
 
-  // Fetch user's investments from Supabase
+  // Fetch user's investments from Supabase - FIXED VERSION
   const fetchUserInvestments = async (userId: string) => {
     try {
       console.log("Fetching user investments for:", userId);
       
-      const { data, error } = await supabase
+      // First, fetch user investments
+      const { data: userInvestmentsData, error: userInvestmentsError } = await supabase
         .from('user_investments')
-        .select(`
-          id,
-          investment_id,
-          amount,
-          shares,
-          status,
-          returns,
-          created_at,
-          joint_investments (
-            id,
-            name,
-            roi_percentage
-          )
-        `)
+        .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error("Error fetching user investments:", error);
-        throw error;
+      if (userInvestmentsError) {
+        console.error("Error fetching user investments:", userInvestmentsError);
+        throw userInvestmentsError;
       }
       
-      console.log("Raw user investments data:", data);
+      console.log("User investments data:", userInvestmentsData);
       
-      if (data && data.length > 0) {
-        const transformed: UserInvestment[] = data.map(inv => ({
-          id: inv.id,
-          investmentId: inv.investment_id,
-          investmentName: inv.joint_investments?.name || 'Unknown Investment',
-          amount: inv.amount,
-          shares: inv.shares,
-          joinedAt: inv.created_at,
-          status: inv.status,
-          returns: inv.returns || 0
-        }));
+      if (userInvestmentsData && userInvestmentsData.length > 0) {
+        // Get all investment IDs
+        const investmentIds = userInvestmentsData.map(inv => inv.investment_id);
         
-        console.log("Transformed investments:", transformed);
-        setUserInvestments(transformed);
+        // Fetch corresponding joint investments
+        const { data: jointInvestmentsData, error: jointInvestmentsError } = await supabase
+          .from('joint_investments')
+          .select('id, name, roi_percentage')
+          .in('id', investmentIds);
+
+        if (jointInvestmentsError) {
+          console.error("Error fetching joint investments:", jointInvestmentsError);
+          throw jointInvestmentsError;
+        }
+        
+        console.log("Joint investments data:", jointInvestmentsData);
+        
+        // Create a map for quick lookup
+        const investmentsMap = new Map();
+        jointInvestmentsData?.forEach(inv => {
+          investmentsMap.set(inv.id, inv);
+        });
+        
+        // Transform the data
+        const transformed: UserInvestment[] = userInvestmentsData.map(inv => {
+          const jointInv = investmentsMap.get(inv.investment_id);
+          
+          return {
+            id: inv.id,
+            investmentId: inv.investment_id,
+            investmentName: jointInv?.name || 'Unknown Investment',
+            amount: inv.amount,
+            shares: inv.shares,
+            joinedAt: inv.created_at,
+            status: inv.status,
+            returns: inv.returns || 0,
+            roi: jointInv?.roi_percentage || 0
+          };
+        });
+        
+        // Add trend data
+        const transformedWithTrends = generateUserTrends(transformed);
+        
+        console.log("Transformed investments:", transformedWithTrends);
+        setUserInvestments(transformedWithTrends);
       } else {
         console.log("No user investments found");
         setUserInvestments([]);
@@ -190,6 +281,36 @@ export default function JointInvestmentsPage() {
     } catch (error) {
       console.error('Error fetching user investments:', error);
       setError('Failed to load your investments');
+      
+      // Fallback to mock data for development
+      console.log("Using mock investment data as fallback");
+      const mockInvestments: UserInvestment[] = [
+        {
+          id: "mock-1",
+          investmentId: "1",
+          investmentName: "Green Energy Solar Farm",
+          amount: 15000,
+          shares: 15,
+          joinedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
+          status: "active",
+          returns: 1250,
+          roi: 12.5
+        },
+        {
+          id: "mock-2",
+          investmentId: "2",
+          investmentName: "AI Technology Fund",
+          amount: 25000,
+          shares: 25,
+          joinedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+          status: "active",
+          returns: 3200,
+          roi: 18.7
+        }
+      ];
+      
+      const mockWithTrends = generateUserTrends(mockInvestments);
+      setUserInvestments(mockWithTrends);
     }
   };
 
@@ -371,49 +492,6 @@ export default function JointInvestmentsPage() {
     }
   };
 
-  const handleCreateInvestment = async (data: any) => {
-    try {
-      setIsProcessing(true);
-      
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-      
-      const { error } = await supabase
-        .from('joint_investments')
-        .insert([{
-          name: data.name,
-          description: data.description,
-          category: data.category,
-          min_investment: data.minInvestment,
-          total_value: data.targetAmount,
-          invested_amount: 0,
-          participants: 0,
-          max_participants: data.maxParticipants,
-          roi_percentage: data.roi,
-          duration: data.duration,
-          risk_level: data.risk,
-          status: 'Open',
-          end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          created_by: user.id,
-          features: []
-        }]);
-        
-      if (error) throw error;
-      
-      setSuccess("Investment opportunity created successfully!");
-      setShowCreateModal(false);
-      
-      // Refresh investments
-      await fetchAvailableInvestments();
-      
-    } catch (error: any) {
-      console.error("Error creating investment:", error);
-      setError(error.message || "Failed to create investment");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const handleRefresh = async () => {
     setRefreshing(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -460,6 +538,22 @@ export default function JointInvestmentsPage() {
       case "Medium": return "text-yellow-500 bg-yellow-500/10 border-yellow-500/20";
       case "High": return "text-red-500 bg-red-500/10 border-red-500/20";
       default: return "text-gray-500 bg-gray-500/10 border-gray-500/20";
+    }
+  };
+
+  const getTrendIcon = (trend?: "up" | "down" | "stable") => {
+    switch (trend) {
+      case "up": return <TrendingUp className="w-4 h-4 text-green-500" />;
+      case "down": return <TrendingDown className="w-4 h-4 text-red-500" />;
+      default: return <Minus className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const getTrendColor = (trend?: "up" | "down" | "stable") => {
+    switch (trend) {
+      case "up": return "text-green-500";
+      case "down": return "text-red-500";
+      default: return "text-gray-400";
     }
   };
 
@@ -663,281 +757,6 @@ export default function JointInvestmentsPage() {
     );
   };
 
-  const CreateModal = ({ isOpen, onClose, onCreate }: CreateModalProps) => {
-    const [step, setStep] = useState<"details" | "review">("details");
-    const [formData, setFormData] = useState({
-      name: "",
-      description: "",
-      category: "Real Estate",
-      minInvestment: 5000,
-      targetAmount: 1000000,
-      roi: 12,
-      duration: "24 months",
-      risk: "Medium" as "Low" | "Medium" | "High",
-      maxParticipants: 100
-    });
-    
-    if (!isOpen) return null;
-    
-    const handleSubmit = (e: React.FormEvent) => {
-      e.preventDefault();
-      if (step === "details") {
-        setStep("review");
-      } else {
-        onCreate(formData);
-      }
-    };
-    
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-        <div className="bg-[#0B1C2D] rounded-2xl border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-800 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-[#4c6fff]/10 rounded-lg">
-                <UserPlus className="w-5 h-5 text-[#4c6fff]" />
-              </div>
-              <h3 className="text-xl font-bold text-white">Create Joint Investment</h3>
-            </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          
-          <div className="p-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {step === "details" ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                      Investment Name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="e.g., Green Energy Solar Farm"
-                      className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                      Description
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      placeholder="Describe your investment opportunity..."
-                      rows={4}
-                      className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors resize-none"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Category
-                      </label>
-                      <select
-                        value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                      >
-                        <option>Real Estate</option>
-                        <option>Renewable Energy</option>
-                        <option>Technology</option>
-                        <option>Healthcare</option>
-                        <option>Agriculture</option>
-                        <option>Cryptocurrency</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Risk Level
-                      </label>
-                      <select
-                        value={formData.risk}
-                        onChange={(e) => setFormData({ ...formData, risk: e.target.value as any })}
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                      >
-                        <option>Low</option>
-                        <option>Medium</option>
-                        <option>High</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Minimum Investment ($)
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.minInvestment}
-                        onChange={(e) => setFormData({ ...formData, minInvestment: parseInt(e.target.value) })}
-                        min="100"
-                        step="100"
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                        required
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Target Amount ($)
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.targetAmount}
-                        onChange={(e) => setFormData({ ...formData, targetAmount: parseInt(e.target.value) })}
-                        min="10000"
-                        step="1000"
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                        required
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Expected ROI (%)
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.roi}
-                        onChange={(e) => setFormData({ ...formData, roi: parseInt(e.target.value) })}
-                        min="1"
-                        max="100"
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                        required
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">
-                        Duration
-                      </label>
-                      <select
-                        value={formData.duration}
-                        onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
-                        className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                      >
-                        <option>12 months</option>
-                        <option>24 months</option>
-                        <option>36 months</option>
-                        <option>48 months</option>
-                        <option>60 months</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                      Max Participants
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.maxParticipants}
-                      onChange={(e) => setFormData({ ...formData, maxParticipants: parseInt(e.target.value) })}
-                      min="10"
-                      max="1000"
-                      className="w-full px-4 py-3 bg-[#0F2438] border border-gray-800 rounded-xl text-white focus:outline-none focus:border-[#4c6fff] transition-colors"
-                      required
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-6">
-                  <div className="bg-[#0F2438] rounded-xl p-6 border border-gray-800">
-                    <h4 className="text-white font-bold mb-4">Review Investment Details</h4>
-                    
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Name</span>
-                        <span className="text-white font-medium">{formData.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Category</span>
-                        <span className="text-white">{formData.category}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Risk Level</span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRiskColor(formData.risk)}`}>
-                          {formData.risk}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Minimum Investment</span>
-                        <span className="text-white font-bold">{formatCurrency(formData.minInvestment)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Target Amount</span>
-                        <span className="text-white font-bold">{formatCurrency(formData.targetAmount)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Expected ROI</span>
-                        <span className="text-green-500 font-bold">{formData.roi}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Duration</span>
-                        <span className="text-white">{formData.duration}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Max Participants</span>
-                        <span className="text-white">{formData.maxParticipants}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-                    <div className="flex items-start space-x-3">
-                      <Info className="w-5 h-5 text-blue-500 mt-0.5" />
-                      <div>
-                        <h5 className="text-blue-500 font-medium">Ready to launch</h5>
-                        <p className="text-gray-400 text-sm mt-1">
-                          Your investment opportunity will be visible to all investors. You can manage it from your dashboard.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex space-x-3">
-                    <button
-                      type="button"
-                      onClick={() => setStep("details")}
-                      className="flex-1 py-3 bg-[#0F2438] border border-gray-800 text-white rounded-xl hover:border-gray-700 transition-colors"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isProcessing}
-                      className="flex-1 py-3 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white font-medium rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
-                    >
-                      {isProcessing ? (
-                        <span className="flex items-center justify-center">
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Creating...
-                        </span>
-                      ) : (
-                        "Create Investment"
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0A0F1E] flex items-center justify-center">
@@ -980,13 +799,6 @@ export default function JointInvestmentsPage() {
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white rounded-lg hover:opacity-90 transition-opacity"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Investment</span>
             </button>
           </div>
         </div>
@@ -1050,6 +862,86 @@ export default function JointInvestmentsPage() {
           </div>
         </div>
 
+        {/* Trending Investments Chart */}
+        {investmentTrends.length > 0 && (
+          <div className="mb-8 bg-[#0B1C2D] rounded-2xl border border-gray-800 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-[#4c6fff]/10 rounded-lg">
+                  <BarChart3 className="w-5 h-5 text-[#4c6fff]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Investment Trends</h3>
+                  <p className="text-sm text-gray-400">Rising and falling investments</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-xs text-gray-400">Rising</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <span className="text-xs text-gray-400">Falling</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Chart Bars */}
+            <div className="space-y-4">
+              {investmentTrends.slice(0, 5).map((trend) => {
+                const barWidth = Math.min(Math.abs(trend.changePercentage) * 3, 100);
+                const isPositive = trend.trend === "up";
+                
+                return (
+                  <div key={trend.id} className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center space-x-2">
+                        {getTrendIcon(trend.trend)}
+                        <span className="text-white font-medium">{trend.name}</span>
+                        <span className="text-xs text-gray-500">{trend.category}</span>
+                      </div>
+                      <div className={`flex items-center space-x-2 ${getTrendColor(trend.trend)}`}>
+                        <span>{isPositive ? '+' : ''}{trend.changePercentage.toFixed(1)}%</span>
+                        <span className="text-gray-400 text-xs">
+                          {formatCurrency(trend.change)}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
+                      <div 
+                        className={`absolute top-0 left-0 h-full rounded-full transition-all duration-500 ${
+                          isPositive ? 'bg-green-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${barWidth}%` }}
+                      />
+                    </div>
+                    
+                    {/* Mini Sparkline (simplified) */}
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-xs text-gray-600">Previous: {formatCurrency(trend.previousValue)}</span>
+                      <span className="text-xs text-gray-600">Current: {formatCurrency(trend.currentValue)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* View All Link */}
+            {investmentTrends.length > 5 && (
+              <button
+                onClick={() => setActiveTab("trending")}
+                className="w-full mt-4 py-2 text-sm text-[#4c6fff] hover:text-white transition-colors flex items-center justify-center"
+              >
+                View All Trends
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Error/Success Messages */}
         {error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
@@ -1077,10 +969,10 @@ export default function JointInvestmentsPage() {
 
         {/* Tabs */}
         <div className="border-b border-gray-800 mb-6">
-          <div className="flex space-x-6">
+          <div className="flex space-x-6 overflow-x-auto pb-1 scrollbar-hide">
             <button
               onClick={() => setActiveTab("discover")}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${
                 activeTab === "discover"
                   ? "text-[#4c6fff] border-b-2 border-[#4c6fff]"
                   : "text-gray-400 hover:text-white"
@@ -1090,7 +982,7 @@ export default function JointInvestmentsPage() {
             </button>
             <button
               onClick={() => setActiveTab("my-investments")}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${
                 activeTab === "my-investments"
                   ? "text-[#4c6fff] border-b-2 border-[#4c6fff]"
                   : "text-gray-400 hover:text-white"
@@ -1098,11 +990,21 @@ export default function JointInvestmentsPage() {
             >
               My Investments ({userInvestments.length})
             </button>
+            <button
+              onClick={() => setActiveTab("trending")}
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${
+                activeTab === "trending"
+                  ? "text-[#4c6fff] border-b-2 border-[#4c6fff]"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              Trending
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        {activeTab === "discover" ? (
+        {activeTab === "discover" && (
           loadingInvestments ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-[#4c6fff] animate-spin" />
@@ -1110,121 +1012,136 @@ export default function JointInvestmentsPage() {
             </div>
           ) : investments.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {investments.map((investment) => (
-                <div
-                  key={investment.id}
-                  className="bg-[#0B1C2D] rounded-2xl border border-gray-800 overflow-hidden hover:border-[#4c6fff]/50 transition-colors"
-                >
-                  <div className="relative h-48">
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B1C2D] via-transparent to-transparent z-10"></div>
-                    <img
-                      src={investment.image}
-                      alt={investment.name}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute top-4 right-4 z-20">
-                      {getStatusBadge(investment.status)}
-                    </div>
-                    <div className="absolute bottom-4 left-4 z-20">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRiskColor(investment.risk)}`}>
-                        {investment.risk} Risk
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="text-xl font-bold text-white mb-1">{investment.name}</h3>
-                        <p className="text-sm text-gray-400">{investment.category}</p>
+              {investments.map((investment) => {
+                // Find trend for this investment
+                const trend = investmentTrends.find(t => t.id === investment.id);
+                
+                return (
+                  <div
+                    key={investment.id}
+                    className="bg-[#0B1C2D] rounded-2xl border border-gray-800 overflow-hidden hover:border-[#4c6fff]/50 transition-colors"
+                  >
+                    <div className="relative h-48">
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#0B1C2D] via-transparent to-transparent z-10"></div>
+                      <img
+                        src={investment.image}
+                        alt={investment.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-4 right-4 z-20">
+                        {getStatusBadge(investment.status)}
+                      </div>
+                      <div className="absolute bottom-4 left-4 z-20 flex space-x-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRiskColor(investment.risk)}`}>
+                          {investment.risk} Risk
+                        </span>
+                        {trend && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center ${
+                            trend.trend === 'up' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
+                            trend.trend === 'down' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                            'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+                          }`}>
+                            {getTrendIcon(trend.trend)}
+                            <span className="ml-1">{trend.changePercentage > 0 ? '+' : ''}{trend.changePercentage.toFixed(1)}%</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                     
-                    <p className="text-gray-400 text-sm mb-4 line-clamp-2">
-                      {investment.description}
-                    </p>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-400">Progress</span>
-                          <span className="text-white">
-                            {formatCurrency(investment.investedAmount)} / {formatCurrency(investment.totalValue)}
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-800 rounded-full h-2">
-                          <div
-                            className="bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 h-2 rounded-full"
-                            style={{ width: `${getProgressPercentage(investment.investedAmount, investment.totalValue)}%` }}
-                          ></div>
+                    <div className="p-6">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="text-xl font-bold text-white mb-1">{investment.name}</h3>
+                          <p className="text-sm text-gray-400">{investment.category}</p>
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-gray-400 text-xs">Min Investment</p>
-                          <p className="text-white font-bold">{formatCurrency(investment.minInvestment)}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400 text-xs">Participants</p>
-                          <p className="text-white font-bold">{investment.participants}/{investment.maxParticipants}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400 text-xs">Expected ROI</p>
-                          <p className="text-green-500 font-bold">{investment.roi}%</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400 text-xs">Duration</p>
-                          <p className="text-white font-bold">{investment.duration}</p>
-                        </div>
-                      </div>
+                      <p className="text-gray-400 text-sm mb-4 line-clamp-2">
+                        {investment.description}
+                      </p>
                       
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {investment.features.map((feature, index) => (
-                          <span
-                            key={index}
-                            className="px-2 py-1 bg-[#0F2438] rounded-lg text-xs text-gray-400"
-                          >
-                            {feature}
-                          </span>
-                        ))}
-                      </div>
-                      
-                      <div className="flex items-center justify-between pt-2">
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Calendar className="w-4 h-4 mr-1" />
-                          <span>Ends {formatDate(investment.endDate)}</span>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-400">Progress</span>
+                            <span className="text-white">
+                              {formatCurrency(investment.investedAmount)} / {formatCurrency(investment.totalValue)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-800 rounded-full h-2">
+                            <div
+                              className="bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 h-2 rounded-full"
+                              style={{ width: `${getProgressPercentage(investment.investedAmount, investment.totalValue)}%` }}
+                            ></div>
+                          </div>
                         </div>
                         
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleCopyLink(investment.id)}
-                            className="p-2 bg-[#0F2438] border border-gray-800 rounded-lg text-gray-400 hover:text-[#4c6fff] hover:border-[#4c6fff] transition-colors"
-                            title="Copy invite link"
-                          >
-                            {copied === investment.id ? (
-                              <CheckCircle className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <Link2 className="w-4 h-4" />
-                            )}
-                          </button>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-gray-400 text-xs">Min Investment</p>
+                            <p className="text-white font-bold">{formatCurrency(investment.minInvestment)}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Participants</p>
+                            <p className="text-white font-bold">{investment.participants}/{investment.maxParticipants}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Expected ROI</p>
+                            <p className="text-green-500 font-bold">{investment.roi}%</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400 text-xs">Duration</p>
+                            <p className="text-white font-bold">{investment.duration}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {investment.features.map((feature, index) => (
+                            <span
+                              key={index}
+                              className="px-2 py-1 bg-[#0F2438] rounded-lg text-xs text-gray-400"
+                            >
+                              {feature}
+                            </span>
+                          ))}
+                        </div>
+                        
+                        <div className="flex items-center justify-between pt-2">
+                          <div className="flex items-center text-sm text-gray-500">
+                            <Calendar className="w-4 h-4 mr-1" />
+                            <span>Ends {formatDate(investment.endDate)}</span>
+                          </div>
                           
-                          <button
-                            onClick={() => {
-                              setSelectedInvestment(investment);
-                              setShowJoinModal(true);
-                            }}
-                            disabled={investment.status !== "Open"}
-                            className="px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Join Now
-                          </button>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleCopyLink(investment.id)}
+                              className="p-2 bg-[#0F2438] border border-gray-800 rounded-lg text-gray-400 hover:text-[#4c6fff] hover:border-[#4c6fff] transition-colors"
+                              title="Copy invite link"
+                            >
+                              {copied === investment.id ? (
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                              ) : (
+                                <Link2 className="w-4 h-4" />
+                              )}
+                            </button>
+                            
+                            <button
+                              onClick={() => {
+                                setSelectedInvestment(investment);
+                                setShowJoinModal(true);
+                              }}
+                              disabled={investment.status !== "Open"}
+                              className="px-4 py-2 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Join Now
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="bg-[#0B1C2D] rounded-xl border border-gray-800 p-12 text-center">
@@ -1234,18 +1151,20 @@ export default function JointInvestmentsPage() {
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">No investments available</h3>
                 <p className="text-gray-400 mb-6 max-w-md">
-                  There are no joint investment opportunities available at the moment. Check back later or create your own.
+                  There are no joint investment opportunities available at the moment. Check back later.
                 </p>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="px-6 py-3 bg-gradient-to-r from-[#4c6fff] to-[#4c6fff]/80 text-white rounded-lg hover:opacity-90 transition-opacity"
+                <Link
+                  href="/dashboard"
+                  className="px-6 py-3 bg-[#0F2438] border border-gray-800 text-white rounded-lg hover:border-[#4c6fff] transition-colors"
                 >
-                  Create Investment
-                </button>
+                  Return to Dashboard
+                </Link>
               </div>
             </div>
           )
-        ) : (
+        )}
+
+        {activeTab === "my-investments" && (
           <div className="space-y-6">
             {userInvestments.length > 0 ? (
               userInvestments.map((investment) => {
@@ -1261,7 +1180,15 @@ export default function JointInvestmentsPage() {
                           <TrendingUp className="w-6 h-6 text-[#4c6fff]" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-bold text-white">{investment.investmentName}</h3>
+                          <div className="flex items-center space-x-3">
+                            <h3 className="text-lg font-bold text-white">{investment.investmentName}</h3>
+                            {investment.trend && (
+                              <span className={`flex items-center text-xs ${getTrendColor(investment.trend)}`}>
+                                {getTrendIcon(investment.trend)}
+                                <span className="ml-1">{investment.trendPercentage?.toFixed(1)}%</span>
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center space-x-3 mt-1">
                             <span className="text-sm text-gray-400">
                               Joined {formatDate(investment.joinedAt)}
@@ -1322,9 +1249,88 @@ export default function JointInvestmentsPage() {
             )}
           </div>
         )}
+
+        {activeTab === "trending" && (
+          <div className="bg-[#0B1C2D] rounded-xl border border-gray-800 p-6">
+            <h3 className="text-lg font-bold text-white mb-6">All Investment Trends</h3>
+            
+            <div className="space-y-6">
+              {investmentTrends.map((trend) => {
+                const barWidth = Math.min(Math.abs(trend.changePercentage) * 3, 100);
+                const isPositive = trend.trend === "up";
+                
+                return (
+                  <div key={trend.id} className="space-y-3 p-4 bg-[#0F2438] rounded-xl border border-gray-800">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className={`p-2 rounded-lg ${
+                          isPositive ? 'bg-green-500/10' : 'bg-red-500/10'
+                        }`}>
+                          {isPositive ? (
+                            <ArrowUp className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <ArrowDown className="w-5 h-5 text-red-500" />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-white font-medium">{trend.name}</h4>
+                          <p className="text-xs text-gray-500">{trend.category}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-lg font-bold ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                          {isPositive ? '+' : ''}{trend.changePercentage.toFixed(1)}%
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {formatCurrency(trend.change)}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div 
+                          className={`absolute top-0 left-0 h-full rounded-full transition-all duration-500 ${
+                            isPositive ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${barWidth}%` }}
+                        />
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">
+                          Previous: {formatCurrency(trend.previousValue)}
+                        </span>
+                        <span className="text-gray-400">
+                          Current: {formatCurrency(trend.currentValue)}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-800">
+                      <span className="text-xs text-gray-500">Investment ID: {trend.id.slice(0, 8)}</span>
+                      <button
+                        onClick={() => {
+                          const investment = investments.find(i => i.id === trend.id);
+                          if (investment) {
+                            setSelectedInvestment(investment);
+                            setShowJoinModal(true);
+                          }
+                        }}
+                        className="text-xs text-[#4c6fff] hover:text-white transition-colors"
+                      >
+                        View Investment
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Modals */}
+      {/* Join Modal */}
       <JoinModal
         isOpen={showJoinModal}
         onClose={() => {
@@ -1334,12 +1340,6 @@ export default function JointInvestmentsPage() {
         investment={selectedInvestment}
         userBalance={balance}
         onJoin={handleJoinInvestment}
-      />
-      
-      <CreateModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onCreate={handleCreateInvestment}
       />
       
       <style jsx>{`
@@ -1361,6 +1361,14 @@ export default function JointInvestmentsPage() {
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
+        }
+        
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
       `}</style>
     </div>
